@@ -162,17 +162,31 @@ jobs:
         echo "Cloning CMake version ${{ env.CMAKE_VERSION_TAG }}"
         git clone --depth 1 --branch ${{ env.CMAKE_VERSION_TAG }} https://github.com/Kitware/CMake.git ${{ runner.temp }}/cmake_src
 
-    - name: Patch Source/CMakeLists.txt to disable CMAKE_USE_CPU_AFFINITY for Android
+    - name: Patch Source/CMakeLists.txt to set CMAKE_USE_CPU_AFFINITY to OFF for Android
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAKE_LISTS_PATH="$CMAKE_SOURCE_DIR/Source/CMakeLists.txt"
-        echo "Patching $CMAKE_LISTS_PATH to disable CMAKE_USE_CPU_AFFINITY for Android."
+        echo "Patching $CMAKE_LISTS_PATH to set CMAKE_USE_CPU_AFFINITY to OFF for Android."
 
         sed -i '/if(CMAKE_SYSTEM_NAME MATCHES "Linux")/i\if(ANDROID)\n  message(STATUS "Disabling CMAKE_USE_CPU_AFFINITY for Android build.")\n  set(CMAKE_USE_CPU_AFFINITY OFF CACHE INTERNAL "Turned off for Android build." FORCE)\nendif()' "$CMAKE_LISTS_PATH"
 
         echo "Patch applied. Showing relevant section of Source/CMakeLists.txt:"
         grep -C 5 'Disabling CMAKE_USE_CPU_AFFINITY' "$CMAKE_LISTS_PATH" || echo "Could not find patched section using grep."
+
+    - name: Patch Source/cmAffinity.cxx to explicitly disable CPU affinity for Android compilation
+      env:
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
+      run: |
+        CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
+        echo "Patching $CMAFFINITY_CXX_PATH to explicitly disable CPU affinity via preprocessor directives for Android."
+
+        # Insert #if/#undef/#define/#endif block at the very beginning of the file
+        sed -i '1i#if defined(ANDROID)\n#undef CMAKE_USE_CPU_AFFINITY\n#define CMAKE_USE_CPU_AFFINITY 0\n#endif\n' "$CMAFFINITY_CXX_PATH"
+
+        echo "Patch applied. Showing first few lines of cmAffinity.cxx:"
+        head -n 10 "$CMAFFINITY_CXX_PATH"
+        echo "--- End of cmAffinity.cxx header patch ---"
 
     - name: Display patched Source/CMakeLists.txt
       env:
@@ -188,11 +202,12 @@ jobs:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
-        echo "Displaying cmAffinity.cxx content around the main #if condition:"
+        echo "Displaying cmAffinity.cxx content around the main #if condition AND header:"
+        head -n 15 "$CMAFFINITY_CXX_PATH" # Show more lines from the top to include the new patch
         grep -C 5 '^#if defined(CMAKE_USE_CPU_AFFINITY)' "$CMAFFINITY_CXX_PATH" || echo "Could not locate main CPU affinity #if condition."
-        echo "--- Full content of cmAffinity.cxx for inspection ---"
-        cat "$CMAFFINITY_CXX_PATH"
-        echo "--- End of cmAffinity.cxx content ---"
+        echo "--- Full content of cmAffinity.cxx for inspection (truncated for brevity) ---"
+        head -n 50 "$CMAFFINITY_CXX_PATH"
+        echo "--- End of cmAffinity.cxx content (truncated) ---"
 
     - name: Create dummy android_lf.h
       env:
