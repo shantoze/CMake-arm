@@ -164,14 +164,12 @@ jobs:
         echo "Patching $CMAFFINITY_CXX_PATH to disable pthread affinity for Android."
 
         # Insert #if !defined(ANDROID) after the POSIX block's opening #else
-        # This targets the exact line: #  else /* POSIX */
-        sed -i '/^#  else \/\* POSIX \*\//a\
-#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
+        # Using \n in the sed command to ensure the text is on a new line.
+        sed -i '/^#  else \/\* POSIX \*\//a\n#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
 
         # Insert #endif // !defined(ANDROID) before the platform-specific #endif for POSIX.
-        # This targets the exact line: #  endif // defined(_WIN32) || defined(__APPLE__)
-        sed -i '/^#  endif \/\/ defined(_WIN32) || defined(__APPLE__)$/i\
-#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
+        # Using \n in the sed command to ensure the text is on a new line.
+        sed -i '/^#  endif \/\/ defined(_WIN32) || defined(__APPLE__)$/i\n#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
 
         echo "Patch applied. Showing relevant sections of cmAffinity.cxx:"
         # Display lines around the patched area to verify the changes
