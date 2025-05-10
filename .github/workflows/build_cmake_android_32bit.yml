@@ -162,20 +162,25 @@ jobs:
         echo "Cloning CMake version ${{ env.CMAKE_VERSION_TAG }}"
         git clone --depth 1 --branch ${{ env.CMAKE_VERSION_TAG }} https://github.com/Kitware/CMake.git ${{ runner.temp }}/cmake_src
 
-    # --- START: Patch cmAffinity.cxx to exclude Android from CPU Affinity ---
-    - name: Patch cmAffinity.cxx to exclude Android from CPU Affinity
+    # --- START: Revised Patch cmAffinity.cxx for pthread_affinity functions (Direct Conditional) ---
+    - name: Patch cmAffinity.cxx for pthread_affinity functions (Direct Conditional)
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
-        echo "Patching $CMAFFINITY_CXX_PATH to exclude Android from CPU affinity features."
+        echo "Applying direct conditional patch to $CMAFFINITY_CXX_PATH for pthread_affinity functions."
 
-        # Modify the existing #if condition to include !defined(ANDROID)
-        sed -i 's/^#if defined(CMAKE_USE_CPU_AFFINITY) && defined(__linux__)/#if defined(CMAKE_USE_CPU_AFFINITY) && defined(__linux__) && !defined(ANDROID)/' "$CMAFFINITY_CXX_PATH"
+        # Insert #if !defined(ANDROID) before lines containing pthread_getaffinity_np or pthread_setaffinity_np
+        # Using a single sed command with branching logic for efficiency
+        sed -i '/pthread_getaffinity_np\|pthread_setaffinity_np/{
+          i#if !defined(ANDROID)
+          a#endif
+        }' "$CMAFFINITY_CXX_PATH"
 
-        echo "Patch applied. Showing relevant section of cmAffinity.cxx (from grep):"
-        grep -A 5 'defined(CMAKE_USE_CPU_AFFINITY)' "$CMAFFINITY_CXX_PATH" || echo "Could not find patched section using grep."
-    # --- END: Patch cmAffinity.cxx to exclude Android from CPU Affinity ---
+        echo "Patch applied. Showing relevant sections of cmAffinity.cxx:"
+        grep -C 5 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" || echo "Could not find pthread_getaffinity_np section using grep."
+        grep -C 5 'pthread_setaffinity_np' "$CMAFFINITY_CXX_PATH" || echo "Could not find pthread_setaffinity_np section using grep."
+    # --- END: Revised Patch cmAffinity.cxx for pthread_affinity functions (Direct Conditional) ---
 
     # --- START: NEW DEBUG STEP: Verify cmAffinity.cxx content after patch ---
     - name: Verify cmAffinity.cxx content after patch
@@ -186,15 +191,17 @@ jobs:
         echo "Displaying cmAffinity.cxx content around line 53 (the error line) and the main #if condition:"
         
         echo "--- Content around the main #if condition for CPU affinity (grep -C 5) ---"
+        # Menampilkan beberapa baris di sekitar baris #if yang seharusnya di-patch
+        # (Menyesuaikan pola grep jika diperlukan, tergantung pada file asli)
         grep -C 5 '^#if defined(CMAKE_USE_CPU_AFFINITY)' "$CMAFFINITY_CXX_PATH" || echo "Could not locate main CPU affinity #if condition."
 
         echo "--- Content around GetThreadAffinity function (line 53 context) ---"
-        # Display 10 lines before and 10 lines after line 53.
-        # Adjust numbers if the compiler error line number changes due to other code or includes.
+        # Menampilkan 10 baris sebelum dan 10 baris setelah baris 53
+        # (Sesuaikan angka jika kode lain memengaruhi lokasi baris)
         head -n 63 "$CMAFFINITY_CXX_PATH" | tail -n 20 || echo "Could not get content around line 53."
 
         echo "--- Full GetThreadAffinity function content (awk) ---"
-        # Extract the entire function body to ensure the #if condition applies correctly
+        # Mencoba menampilkan seluruh fungsi GetThreadAffinity untuk melihat bagaimana pembungkus #if bekerja
         awk '/^std::vector<int> cmAffinity::GetThreadAffinity()/ {
           print; # print the function signature
           found=1;
