@@ -162,43 +162,47 @@ jobs:
         echo "Cloning CMake version ${{ env.CMAKE_VERSION_TAG }}"
         git clone --depth 1 --branch ${{ env.CMAKE_VERSION_TAG }} https://github.com/Kitware/CMake.git ${{ runner.temp }}/cmake_src
 
-    # --- START: Patch cmAffinity.cxx to exclude Android from CPU Affinity (REVERTED to original clean patch) ---
-    - name: Patch cmAffinity.cxx to exclude Android from CPU Affinity
+    # --- START: Patch Source/CMakeLists.txt to disable CMAKE_USE_CPU_AFFINITY for Android ---
+    - name: Patch Source/CMakeLists.txt to disable CMAKE_USE_CPU_AFFINITY for Android
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
-        CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
-        echo "Patching $CMAFFINITY_CXX_PATH to exclude Android from CPU affinity features (reverted to original clean patch)."
+        CMAKE_LISTS_PATH="$CMAKE_SOURCE_DIR/Source/CMakeLists.txt"
+        echo "Patching $CMAKE_LISTS_PATH to disable CMAKE_USE_CPU_AFFINITY for Android."
 
-        # Modify the existing #if condition to include !defined(ANDROID)
-        sed -i 's/^#if defined(CMAKE_USE_CPU_AFFINITY) && defined(__linux__)/#if defined(CMAKE_USE_CPU_AFFINITY) && defined(__linux__) && !defined(ANDROID)/' "$CMAFFINITY_CXX_PATH"
+        # Insert lines before the line that matches "if(CMAKE_SYSTEM_NAME MATCHES "Linux")"
+        sed -i '/if(CMAKE_SYSTEM_NAME MATCHES "Linux")/i\
+if(ANDROID)\
+  message(STATUS "Disabling CMAKE_USE_CPU_AFFINITY for Android build.")\
+  set(CMAKE_USE_CPU_AFFINITY OFF CACHE INTERNAL "Turned off for Android build." FORCE)\
+endif()' "$CMAKE_LISTS_PATH"
 
-        echo "Patch applied. Showing relevant section of cmAffinity.cxx (from grep):"
-        grep -A 5 'defined(CMAKE_USE_CPU_AFFINITY)' "$CMAFFINITY_CXX_PATH" || echo "Could not find patched section using grep."
-    # --- END: Patch cmAffinity.cxx to exclude Android from CPU Affinity ---
+        echo "Patch applied. Showing relevant section of Source/CMakeLists.txt:"
+        grep -C 5 'Disabling CMAKE_USE_CPU_AFFINITY' "$CMAKE_LISTS_PATH" || echo "Could not find patched section using grep."
+    # --- END: Patch Source/CMakeLists.txt to disable CMAKE_USE_CPU_AFFINITY for Android ---
 
-    # --- START: NEW DEBUG STEP: Verify cmAffinity.cxx content after patch (Enhanced) ---
-    - name: Verify cmAffinity.cxx content after patch (Enhanced)
+    # Removed the cmAffinity.cxx direct patch and its verification, as we're changing strategy.
+    # The "Verify cmAffinity.cxx content after patch (Enhanced)" is now redundant for this specific issue,
+    # but it can be kept as a general debug step if desired.
+    # For clarity and focus, I will keep the `Verify cmAffinity.cxx content` step for now.
+
+    # --- START: DEBUG STEP: Verify cmAffinity.cxx content after patch (Enhanced) ---
+    # This step is now for general file integrity check rather than specific patch verification
+    # as the strategy shifted to CMakeLists.txt modification.
+    - name: Verify cmAffinity.cxx content (for general integrity)
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
         echo "Displaying cmAffinity.cxx content around the main #if condition:"
         
-        # Check if the #if has been modified as expected
+        # Check if the original #if is present (should be, as it's not directly patched now)
         grep -C 5 '^#if defined(CMAKE_USE_CPU_AFFINITY)' "$CMAFFINITY_CXX_PATH" || echo "Could not locate main CPU affinity #if condition."
 
         echo "--- Full content of cmAffinity.cxx for inspection ---"
         cat "$CMAFFINITY_CXX_PATH"
         echo "--- End of cmAffinity.cxx content ---"
-
-        # Add a simple check to see if the patched string exists
-        if grep -q '#if defined(CMAKE_USE_CPU_AFFINITY) && defined(__linux__) && !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"; then
-          echo "SUCCESS: The desired patch string is found in cmAffinity.cxx!"
-        else
-          echo "WARNING: The desired patch string IS NOT FOUND in cmAffinity.cxx. Patch likely failed!"
-        fi
-    # --- END: NEW DEBUG STEP ---
+    # --- END: DEBUG STEP ---
 
     # --- START: Tambahkan langkah membuat dummy android_lf.h ---
     - name: Create dummy android_lf.h
