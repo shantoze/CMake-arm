@@ -161,16 +161,23 @@ jobs:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
+        echo "--- cmAffinity.cxx content BEFORE patching (relevant section) ---"
+        # Tampilkan 10 baris sebelum dan sesudah baris target pertama
+        grep -C 10 '#  else /* POSIX */' "$CMAFFINITY_CXX_PATH" || echo "Could not find '#  else /* POSIX */' before patching."
+        echo "--- End of BEFORE patching content ---"
+
         echo "Patching $CMAFFINITY_CXX_PATH to disable pthread affinity for Android using awk."
 
         # Use awk to insert the #if and #endif directives
         awk '
         /^#  else \/\* POSIX \*\// {
+            print "DEBUG: Matched start pattern: " $0; # Debug line: Cetak baris yang cocok
             print; # Print the original line
             print "#if !defined(ANDROID)"; # Insert the #if directive
             next; # Skip to next line to avoid default print
         }
         /^#  endif \/\/ defined(_WIN32) || defined(__APPLE__)$/ {
+            print "DEBUG: Matched end pattern: " $0; # Debug line: Cetak baris yang cocok
             print "#endif // !defined(ANDROID)"; # Insert the #endif directive
             print; # Print the original line
             next; # Skip to next line to avoid default print
@@ -184,6 +191,9 @@ jobs:
             echo "Verification: '#if !defined(ANDROID)' found correctly after '#else /* POSIX */'."
         else
             echo "Error: '#if !defined(ANDROID)' NOT found or incorrectly placed after '#else /* POSIX */'."
+            echo "--- Problematic section AFTER patching ---"
+            grep -A 10 '#else /* POSIX */' "$CMAFFINITY_CXX_PATH" || echo "Could not find '#else /* POSIX */' in patched file."
+            echo "--- End of Problematic section ---"
             exit 1
         fi
 
@@ -191,12 +201,17 @@ jobs:
             echo "Verification: '#endif // !defined(ANDROID)' found correctly before platform-specific #endif."
         else
             echo "Error: '#endif // !defined(ANDROID)' NOT found or incorrectly placed before platform-specific #endif."
+            echo "--- Problematic section AFTER patching ---"
+            grep -B 10 '#endif // defined(_WIN32) || defined(__APPLE__)' "$CMAFFINITY_CXX_PATH" || echo "Could not find '#endif // defined(_WIN32) || defined(__APPLE__)' in patched file."
+            echo "--- End of Problematic section ---"
             exit 1
         fi
 
+        echo "--- cmAffinity.cxx content AFTER patching (relevant section) ---"
         # Display lines around the patched area for visual inspection
-        head -n 100 "$CMAFFINITY_CXX_PATH" | tail -n 80
+        grep -C 10 'else /* POSIX */' "$CMAFFINITY_CXX_PATH" || echo "Could not find 'else /* POSIX */' after patching for full display."
         grep -C 5 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" || echo "pthread_getaffinity_np not found (good if skipped by conditional compilation)."
+        echo "--- End of AFTER patching content ---"
         echo "--- End of cmAffinity.cxx patch verification ---"
 
     - name: Create dummy android_lf.h
