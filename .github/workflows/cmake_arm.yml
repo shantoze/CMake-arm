@@ -1,0 +1,350 @@
+name: Build CMake for Android (armeabi-v7a) - API 34
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  build_android:
+    runs-on: ubuntu-latest # Specifies the runner environment
+
+    env:
+      ANDROID_SDK_CMAKE_VERSION: "cmake;3.22.1" # Changed to a more common SDK CMake version
+      ANDROID_NDK_VERSION_PACKAGE: "ndk;26.3.11579264" # NDK r26d
+      CMAKE_VERSION_TAG: "v3.29.3" # Version of CMake to build (this is for the source we are compiling)
+      ANDROID_PLATFORM: android-34 # <-- TARGET API LEVEL DIUBAH KE 34
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Android SDK, NDK, and SDK's CMake
+      env:
+        ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
+      run: |
+        set -e # Exit immediately if a command exits with a non-zero status.
+        echo "Setting ANDROID_SDK_ROOT"
+        export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
+        echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+
+        mkdir -p "$ANDROID_SDK_ROOT"
+        echo "Verifying creation of SDK root directory: $ANDROID_SDK_ROOT"
+        if [ -d "$ANDROID_SDK_ROOT" ]; then
+          echo "SDK root directory exists."
+        else
+          echo "Error: SDK root directory '$ANDROID_SDK_ROOT' DOES NOT EXIST after mkdir -p."
+          ls -lA "$(dirname "$ANDROID_SDK_ROOT")" || echo "Cannot list parent directory."
+          exit 1
+        fi
+
+        echo "Downloading Android command line tools..."
+        SDK_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+        wget -q -O cmdline-tools.zip "$SDK_TOOLS_URL"
+        unzip -q cmdline-tools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools-temp"
+        mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+        mv "$ANDROID_SDK_ROOT/cmdline-tools-temp/cmdline-tools/"* "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+        rm -rf "$ANDROID_SDK_ROOT/cmdline-tools-temp"
+        rm -f cmdline-tools.zip
+
+        echo "Adding SDK tools to PATH"
+        echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
+        export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+
+        echo "Verifying sdkmanager..."
+        which sdkmanager || { echo "sdkmanager not found on PATH after setup."; exit 1; }
+
+        echo "Updating SDK (verbose)..."
+        yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --update
+
+        echo "Installing NDK ('${{ env.ANDROID_NDK_VERSION_PACKAGE }}'), platforms, build-tools, SDK's CMake ('${{ env.ANDROID_SDK_CMAKE_VERSION }}')..."
+        yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
+          "platforms;${{ env.ANDROID_PLATFORM }}" \
+          "build-tools;33.0.0" \
+          "${{ env.ANDROID_NDK_VERSION_PACKAGE }}" \
+          "${{ env.ANDROID_SDK_CMAKE_VERSION }}"
+
+        echo "Attempting to locate installed NDK..."
+        NDK_BASE_PATH="$ANDROID_SDK_ROOT/ndk"
+        if [ ! -d "$NDK_BASE_PATH" ] || [ -z "$(ls -A $NDK_BASE_PATH)" ]; then
+          echo "Error: NDK base directory '$NDK_BASE_PATH' not found or is empty after NDK installation attempt."
+          echo "This could mean '${{ env.ANDROID_NDK_VERSION_PACKAGE }}' is not a valid NDK package string, or the installation failed."
+          echo "Listing contents of $ANDROID_SDK_ROOT (if it exists):"
+          ls -lA "$ANDROID_SDK_ROOT"
+          echo "Listing available SDK packages (might take a moment) to help find a valid NDK package:"
+          sdkmanager --list --sdk_root="$ANDROID_SDK_ROOT" | grep "ndk;" || echo "No NDK packages found in list."
+          exit 1
+        fi
+
+        INSTALLED_NDK_SUBDIR=$(ls "$NDK_BASE_PATH" | head -n 1)
+        if [ -z "$INSTALLED_NDK_SUBDIR" ]; then
+          echo "Error: No subdirectory found in NDK base path '$NDK_BASE_PATH'. NDK might not be installed correctly."
+          echo "Contents of '$NDK_BASE_PATH':"
+          ls -lA "$NDK_BASE_PATH"
+          exit 1
+        fi
+
+        DETECTED_NDK_HOME="$NDK_BASE_PATH/$INSTALLED_NDK_SUBDIR"
+        echo "NDK appears to be installed in:: $DETECTED_NDK_HOME"
+
+        if [ ! -f "$DETECTED_NDK_HOME/build/cmake/android.toolchain.cmake" ]; then
+            echo "Error: android.toolchain.cmake not found in $DETECTED_NDK_HOME/build/cmake/"
+            echo "This indicates an incomplete or improperly structured NDK installation."
+            ls -lA "$DETECTED_NDK_HOME"
+            ls -lA "$DETECTED_NDK_HOME/build" 2>/dev/null || echo "$DETECTED_NDK_HOME/build does not exist."
+            exit 1
+        fi
+
+        echo "Successfully located NDK and toolchain file."
+        echo "ANDROID_NDK_HOME=$DETECTED_NDK_HOME" >> $GITHUB_ENV
+
+        NDK_VERSION_NUMBER_FOR_ARTIFACT="${ANDROID_NDK_VERSION_PACKAGE#ndk;}"
+        echo "NDK_VERSION_NUMBER_FOR_ARTIFACT=$NDK_VERSION_NUMBER_FOR_ARTIFACT" >> $GITHUB_ENV
+        echo "Extracted NDK version for artifact: $NDK_VERSION_NUMBER_FOR_ARTIFACT"
+
+        echo "Accepting SDK licenses..."
+        yes | sdkmanager --licenses --sdk_root="$ANDROID_SDK_ROOT" > /dev/null
+
+        echo "Android SDK setup summary:"
+        echo "SDK root: $ANDROID_SDK_ROOT"
+        echo "NDK path (detected for next steps): $DETECTED_NDK_HOME"
+        echo "SDK's CMake version requested: ${{ env.ANDROID_SDK_CMAKE_VERSION }}"
+
+    - name: Verifikasi SDK & NDK setup
+      env:
+        ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
+        ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        NDK_VERSION_NUMBER_FOR_ARTIFACT: ${{ env.NDK_VERSION_NUMBER_FOR_ARTIFACT }}
+      run: |
+        echo "Verifying sdkmanager availability..."
+        which sdkmanager || { echo "sdkmanager is not on PATH in this step."; exit 1; }
+        echo "ANDROID_SDK_ROOT is: $ANDROID_SDK_ROOT"
+        echo "ANDROID_NDK_HOME is: $ANDROID_NDK_HOME"
+        echo "NDK_VERSION_NUMBER_FOR_ARTIFACT is: ${{ env.NDK_VERSION_NUMBER_FOR_ARTIFACT }}"
+
+        echo "Contents of SDK root ($ANDROID_SDK_ROOT):"
+        ls -lA "$ANDROID_SDK_ROOT"
+        echo "Contents of SDK CMake directory ($ANDROID_SDK_ROOT/cmake):"
+        ls -lA "$ANDROID_SDK_ROOT/cmake" || echo "SDK CMake directory not found or empty."
+
+        echo "Contents of NDK root ($ANDROID_NDK_HOME):"
+        if [ ! -d "$ANDROID_NDK_HOME" ]; then
+          echo "Error: ANDROID_NDK_HOME directory '$ANDROID_NDK_HOME' does not exist."
+          exit 1
+        fi
+        ls -lA "$ANDROID_NDK_HOME"
+
+        echo "Checking for NDK toolchain file at $ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+        if [ ! -f "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" ]; then
+            echo "Error: NDK toolchain file NOT FOUND. Path: $ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+            exit 1
+        else
+            echo "NDK toolchain file found successfully."
+        fi
+
+    - name: Install build tools (cmake, make, ninja for host)
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y cmake make ninja-build git
+
+    - name: Clone CMake source code (version ${{ env.CMAKE_VERSION_TAG }})
+      run: |
+        echo "Cloning CMake version ${{ env.CMAKE_VERSION_TAG }}"
+        git clone --depth 1 --branch ${{ env.CMAKE_VERSION_TAG }} https://github.com/Kitware/CMake.git ${{ runner.temp }}/cmake_src
+
+    - name: Patch Source/CMakeLists.txt to disable CMAKE_USE_CPU_AFFINITY for Android
+      env:
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
+      run: |
+        CMAKE_LISTS_PATH="$CMAKE_SOURCE_DIR/Source/CMakeLists.txt"
+        echo "Patching $CMAKE_LISTS_PATH to disable CMAKE_USE_CPU_AFFINITY for Android."
+
+        # Insert lines before the line that matches "if(CMAKE_SYSTEM_NAME MATCHES "Linux")"
+        sed -i '/if(CMAKE_SYSTEM_NAME MATCHES "Linux")/i\
+if(ANDROID)\
+  message(STATUS "Disabling CMAKE_USE_CPU_AFFINITY for Android build.")\
+  set(CMAKE_USE_CPU_AFFINITY OFF CACHE INTERNAL "Turned off for Android build." FORCE)\
+endif()\
+' "$CMAKE_LISTS_PATH"
+
+        echo "Patch applied. Showing relevant section of Source/CMakeLists.txt:"
+        grep -C 5 'Disabling CMAKE_USE_CPU_AFFINITY' "$CMAKE_LISTS_PATH" || echo "Could not find patched section using grep."
+
+    - name: Verify cmAffinity.cxx content (for general integrity)
+      env:
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
+      run: |
+        CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
+        echo "Displaying cmAffinity.cxx content around the main #if condition:"
+        grep -C 5 '^#if defined(CMAKE_USE_CPU_AFFINITY)' "$CMAFFINITY_CXX_PATH" || echo "Could not locate main CPU affinity #if condition."
+        echo "--- Full content of cmAffinity.cxx for inspection ---"
+        cat "$CMAFFINITY_CXX_PATH"
+        echo "--- End of cmAffinity.cxx content ---"
+
+    - name: Create dummy android_lf.h
+      env:
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
+      run: |
+        DUMMY_HEADER_DIR="$CMAKE_SOURCE_DIR/Utilities/cmlibarchive/contrib/android/include"
+        DUMMY_HEADER_PATH="$DUMMY_HEADER_DIR/android_lf.h"
+        echo "Creating dummy file: $DUMMY_HEADER_PATH"
+        mkdir -p "$DUMMY_HEADER_DIR"
+        touch "$DUMMY_HEADER_PATH"
+        echo "Dummy file created."
+        ls -l "$DUMMY_HEADER_PATH"
+
+    - name: Patch cmlibarchive archive.h to comment out android_lf.h include
+      env:
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
+      run: |
+        ARCHIVE_H_PATH="$CMAKE_SOURCE_DIR/Utilities/cmlibarchive/libarchive/archive.h"
+        echo "Patching $ARCHIVE_H_PATH to comment out android_lf.h include."
+        sed -i 's/#include "android_lf.h"/ \/\/ #include "android_lf.h"/' "$ARCHIVE_H_PATH"
+        echo "Patch applied. Showing relevant section of archive.h:"
+        grep -C 1 "android_lf.h" "$CMAKE_SOURCE_DIR/Utilities/cmlibarchive/libarchive/archive.h" || echo "Could not find patched section using grep."
+
+    - name: Verify cmlibarchive archive.h patch (commented out)
+      env:
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
+      run: |
+        ARCHIVE_H_PATH="$CMAKE_SOURCE_DIR/Utilities/cmlibarchive/libarchive/archive.h"
+        echo "Verifying patch in "$ARCHIVE_H_PATH" (commented out check)..."
+        if grep -q '\/\/ #include "android_lf.h"' "$ARCHIVE_H_PATH"; then
+           echo "Include line successfully commented out."
+        else
+           echo "Error: Include line NOT successfully commented out."
+           echo "Content of "$ARCHIVE_H_PATH":"
+           cat "$ARCHIVE_H_PATH"
+           exit 1
+        fi
+        echo "Patch verification complete."
+
+    - name: Patch cmlibuv core.c for sched.h includes
+      env:
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
+      run: |
+        echo "Patching Utilities/cmlibuv/src/unix/core.c to include sched.h"
+        sed -i '1i#define _GNU_SOURCE' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/core.c"
+        sed -i '2i#include <sched.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/core.c"
+        echo "Patch applied. Showing first few lines of core.c:"
+        head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/core.c"
+
+    - name: Patch cmlibuv pipe.c for unistd.h and pipe2 define
+      env:
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
+      run: |
+        echo "Patching Utilities/cmlibuv/src/unix/pipe.c to include unistd.h and define _GNU_SOURCE"
+        sed -i '1i#define _GNU_SOURCE' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
+        sed -i '2i#include <unistd.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
+        echo "Patch applied. Showing first few lines of pipe.c:"
+        head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
+
+    - name: Patch cmlibuv process.c for sched.h, pthread.h, defines, and stub for pthread_setaffinity_np (revised sed)
+      env:
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
+      run: |
+        echo "Patching Utilities/cmlibuv/src/unix/process.c"
+        sed -i '1i#define _GNU_SOURCE' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+        sed -i '2i#include <sched.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+        sed -i '3i#include <pthread.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+        sed -i '4i#ifndef pthread_setaffinity_np' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+        sed -i '5i#warning "Using stub pthread_setaffinity_np - actual function may be missing or require different defines"' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+        sed -i '6iint pthread_setaffinity_np(pthread_t, size_t, const cpu_set_t *);' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+        sed -i '7i#endif' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+        echo "Patch applied. Showing first few lines of process.c:"
+        head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+
+    - name: Clean previous build artifacts (Aggressive)
+      env:
+        CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
+      run: |
+        echo "Performing aggressive clean: Removing entire build directory: "$CMAKE_BUILD_DIR""
+        rm -rf "$CMAKE_BUILD_DIR"
+        echo "Aggressive clean complete."
+
+    - name: Konfigurasi build CMake untuk Android armeabi-v7a
+      env:
+        CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
+        INSTALL_DIR: ${{ runner.temp }}/cmake_android_install
+      run: |
+        echo "Configuring CMake build for Android (armeabi-v7a)..."
+        mkdir -p "$CMAKE_BUILD_DIR"
+        cd "$CMAKE_BUILD_DIR"
+
+        export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+        which sdkmanager > /dev/null || echo "Warning: sdkmanager not found during CMake configuration."
+
+        echo "Using NDK from: "$ANDROID_NDK_HOME""
+        echo "Toolchain file will be: "$ANDROID_NDK_HOME"/build/cmake/android.toolchain.cmake"
+        echo "Targeting Android API level: ${{ env.ANDROID_PLATFORM }}"
+        echo "Targeting Android ABI: armeabi-v7a"
+
+        cmake "$CMAKE_SOURCE_DIR" \
+              -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI=armeabi-v7a \
+              -DANDROID_PLATFORM=${{ env.ANDROID_PLATFORM }} \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
+              -DBUILD_TESTING=OFF \
+              -Wno-dev \
+              -DCMAKE_C_USE_PRECOMPILED_HEADERS=FALSE \
+              -DCMAKE_CXX_USE_PRECOMPILED_HEADERS=FALSE
+
+        if [ $? -ne 0 ]; then
+          echo "CMake configuration failed!"
+          cat "$CMAKE_BUILD_DIR/CMakeFiles/CMakeOutput.log" || echo "CMakeOutput.log not found."
+          cat "$CMAKE_BUILD_DIR/CMakeFiles/CMakeError.log" || echo "CMakeError.log not found."
+          exit 1
+        fi
+        echo "CMake configuration successful."
+
+    - name: Build CMake with make (Verbose)
+      env:
+        CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
+        INSTALL_DIR: ${{ runner.temp }}/cmake_android_install
+      run: |
+        echo "Building CMake using make with VERBOSE=1..."
+        cd "$CMAKE_BUILD_DIR"
+        make VERBOSE=1 -j$(nproc)
+        if [ $? -ne 0 ]; then
+          echo "Make build failed!"
+          exit 1
+        fi
+        echo "Make build successful."
+
+    - name: Install hasil build CMake
+      env:
+        CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
+        INSTALL_DIR: ${{ runner.temp }}/cmake_android_install
+      run: |
+        echo "Installing CMake to "$INSTALL_DIR"..."
+        cd "$CMAKE_BUILD_DIR"
+        make install
+        if [ $? -ne 0 ]; then
+          echo "Make install failed!"
+          exit 1
+        fi
+        echo "CMake installation successful. Contents of "$INSTALL_DIR":"
+        ls -lA "$INSTALL_DIR"
+
+        echo "Verifying key directories in installation:"
+        ls -lA "$INSTALL_DIR/bin" || echo "Warning: "$INSTALL_DIR"/bin not found or empty."
+
+        CMAKE_VERSION_NUMERIC_PART="${CMAKE_VERSION_TAG#v}"
+        CMAKE_SHARE_DIR_VERSION=$(echo "$CMAKE_VERSION_NUMERIC_PART" | cut -d. -f1,2)
+        CMAKE_SHARE_DIR_TO_CHECK="cmake-$CMAKE_SHARE_DIR_VERSION"
+
+        echo "Verifying share directory: "$INSTALL_DIR"/share/"$CMAKE_SHARE_DIR_TO_CHECK""
+        ls -lA "$INSTALL_DIR/share/$CMAKE_SHARE_DIR_TO_CHECK" || echo "Warning: "$INSTALL_DIR"/share/"$CMAKE_SHARE_DIR_TO_CHECK" not found or empty."
+
+    - name: Upload artefak hasil build
+      uses: actions/upload-artifact@v4
+      with:
+        name: cmake-${{ env.CMAKE_VERSION_TAG }}-android-armeabi-v7a-ndk${{ env.NDK_VERSION_NUMBER_FOR_ARTIFACT }}-api${{ env.ANDROID_PLATFORM }}
+        path: ${{ runner.temp }}/cmake_android_install
+        if-no-files-found: error
