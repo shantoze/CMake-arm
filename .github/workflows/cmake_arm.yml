@@ -161,6 +161,7 @@ jobs:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
+        CMAFFINITY_PATCH_PATH="$CMAKE_SOURCE_DIR/cmAffinity.patch" # Temporary patch file
 
         echo "--- Displaying full content of $CMAFFINITY_CXX_PATH BEFORE patching ---"
         if [ -f "$CMAFFINITY_CXX_PATH" ]; then
@@ -172,39 +173,61 @@ jobs:
         echo "--- End of full content display ---"
 
         echo "--- cmAffinity.cxx content BEFORE patching (relevant section by grep) ---"
-        # Tampilkan 10 baris sebelum dan sesudah baris target pertama (gunakan pola baru)
         grep -C 10 '#  else' "$CMAFFINITY_CXX_PATH" || echo "Could not find '#  else' before patching. Check output above for full file content."
         echo "--- End of BEFORE patching content (grep) ---"
 
-        echo "Patching $CMAFFINITY_CXX_PATH to disable pthread affinity for Android using sed."
+        echo "Creating patch file for cmAffinity.cxx..."
+        cat << 'EOF_PATCH' > "$CMAFFINITY_PATCH_PATH"
+--- a/Source/cmAffinity.cxx
++++ b/Source/cmAffinity.cxx
+@@ -51,7 +51,9 @@
+       }
+     }
+ #  else
++#if !defined(ANDROID)
+     cm_cpuset_t cpuset;
+     CPU_ZERO(&cpuset); // NOLINT(clang-tidy)
+     if (pthread_getaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) == 0) {
+       for (int i = 0; i < cpumask_size; ++i) {
+         if (CPU_ISSET(i, &cpuset)) {
+           processorsAvailable.insert(i);
+         }
+       }
+     }
++#endif // !defined(ANDROID)
+ #  endif
+   }
+ #endif
+EOF_PATCH
 
-        # Insert #if !defined(ANDROID) after the specific '#  else'
-        # This targets the line starting with '#  else' which is the one for POSIX implementation
-        sed -i '/^#  else$/a#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
-
-        # Insert #endif // !defined(ANDROID) after the '}' that closes the pthread_getaffinity_np 'if' block.
-        # This targets the line containing '    }', which closes the 'if (pthread_getaffinity_np(...))' block.
-        # It's specific enough as the previous '}' has a different indentation.
-        sed -i '/^    }$/a#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
-
+        echo "Applying patch to $CMAFFINITY_CXX_PATH..."
+        # Apply the patch. -p1 strips one directory component from the path in the patch file.
+        patch -p1 -d "$CMAKE_SOURCE_DIR" < "$CMAFFINITY_PATCH_PATH"
+        if [ $? -ne 0 ]; then
+            echo "Error: Patch application failed!"
+            exit 1
+        fi
         echo "Patch applied. Verifying changes in cmAffinity.cxx:"
+
         # Verify if both #if and #endif were added
         if grep -q '#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" && \
            grep -q '#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"; then
             echo "Verification: Both '#if !defined(ANDROID)' and '#endif // !defined(ANDROID)' found."
             # More specific check: verify placement
-            if grep -A 5 '#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" | grep -q 'pthread_getaffinity_np'; then
+            # Check if the #if is within 5 lines before pthread_getaffinity_np
+            if grep -B 5 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" | grep -q '#if !defined(ANDROID)'; then
                 echo "Verification: '#if !defined(ANDROID)' found correctly placed before pthread_getaffinity_np."
             else
                 echo "Error: '#if !defined(ANDROID)' found, but not correctly placed before pthread_getaffinity_np."
-                grep -A 10 '#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" || true
+                grep -B 10 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" || true
                 exit 1
             fi
-            if grep -B 5 '#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" | grep -q 'pthread_getaffinity_np'; then
+            # Check if the #endif is within 5 lines after pthread_getaffinity_np
+            if grep -A 5 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" | grep -q '#endif // !defined(ANDROID)'; then
                 echo "Verification: '#endif // !defined(ANDROID)' found correctly placed after pthread_getaffinity_np."
             else
                 echo "Error: '#endif // !defined(ANDROID)' found, but not correctly placed after pthread_getaffinity_np."
-                grep -B 10 '#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" || true
+                grep -A 10 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" || true
                 exit 1
             fi
         else
@@ -216,7 +239,6 @@ jobs:
         fi
 
         echo "--- cmAffinity.cxx content AFTER patching (relevant section by grep) ---"
-        # Tampilkan baris di sekitar pthread_getaffinity_np untuk inspeksi visual
         grep -C 10 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" || echo "pthread_getaffinity_np not found (good if skipped by conditional compilation)."
         echo "--- End of AFTER patching content (grep) ---"
         echo "--- End of cmAffinity.cxx patch verification ---"
