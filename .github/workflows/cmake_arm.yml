@@ -172,22 +172,22 @@ jobs:
         echo "--- End of full content display ---"
 
         echo "--- cmAffinity.cxx content BEFORE patching (relevant section by grep) ---"
-        # Tampilkan 10 baris sebelum dan sesudah baris target pertama
-        grep -C 10 '#  else /* POSIX */' "$CMAFFINITY_CXX_PATH" || echo "Could not find '#  else /* POSIX */' before patching. Check output above for full file content."
+        # Tampilkan 10 baris sebelum dan sesudah baris target pertama (gunakan pola baru)
+        grep -C 10 '#  else' "$CMAFFINITY_CXX_PATH" || echo "Could not find '#  else' before patching. Check output above for full file content."
         echo "--- End of BEFORE patching content (grep) ---"
 
         echo "Patching $CMAFFINITY_CXX_PATH to disable pthread affinity for Android using awk."
 
-        # Use awk to insert the #if and #endif directives
+        # Use awk to insert the #if and #endif directives with the corrected patterns
         awk '
-        /^#  else \/\* POSIX \*\// {
-            print "DEBUG: Matched start pattern: " $0; # Debug line: Cetak baris yang cocok
+        /^#  else$/ { # Match exactly '#  else'
+            print "DEBUG: Matched start pattern (simple else): " $0;
             print; # Print the original line
             print "#if !defined(ANDROID)"; # Insert the #if directive
             next; # Skip to next line to avoid default print
         }
-        /^#  endif \/\/ defined(_WIN32) || defined(__APPLE__)$/ {
-            print "DEBUG: Matched end pattern: " $0; # Debug line: Cetak baris yang cocok
+        /^#  endif$/ { # Match exactly '#  endif'
+            print "DEBUG: Matched end pattern (simple endif): " $0;
             print "#endif // !defined(ANDROID)"; # Insert the #endif directive
             print; # Print the original line
             next; # Skip to next line to avoid default print
@@ -196,32 +196,22 @@ jobs:
         ' "$CMAFFINITY_CXX_PATH" > "${CMAFFINITY_CXX_PATH}.tmp" && mv "${CMAFFINITY_CXX_PATH}.tmp" "$CMAFFINITY_CXX_PATH"
 
         echo "Patch applied. Verifying changes in cmAffinity.cxx:"
-        # Verify the presence of the inserted lines and surrounding context
-        if grep -A 5 '#else /* POSIX */' "$CMAFFINITY_CXX_PATH" | grep -q '#if !defined(ANDROID)'; then
-            echo "Verification: '#if !defined(ANDROID)' found correctly after '#else /* POSIX */'."
+        # Verify if both #if and #endif were added
+        if grep -q '#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" && \
+           grep -q '#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"; then
+            echo "Verification: Both '#if !defined(ANDROID)' and '#endif // !defined(ANDROID)' found."
         else
-            echo "Error: '#if !defined(ANDROID)' NOT found or incorrectly placed after '#else /* POSIX */'."
-            echo "--- Problematic section AFTER patching ---"
-            grep -A 10 '#else /* POSIX */' "$CMAFFINITY_CXX_PATH" || echo "Could not find '#else /* POSIX */' in patched file."
-            echo "--- End of Problematic section ---"
+            echo "Error: One or both of the patch markers were NOT found."
+            echo "--- Full content of cmAffinity.cxx AFTER patching for inspection ---"
+            cat "$CMAFFINITY_CXX_PATH"
+            echo "--- End of full content ---"
             exit 1
         fi
 
-        if grep -B 5 '#endif // defined(_WIN32) || defined(__APPLE__)' "$CMAFFINITY_CXX_PATH" | grep -q '#endif // !defined(ANDROID)'; then
-            echo "Verification: '#endif // !defined(ANDROID)' found correctly before platform-specific #endif."
-        else
-            echo "Error: '#endif // !defined(ANDROID)' NOT found or incorrectly placed before platform-specific #endif."
-            echo "--- Problematic section AFTER patching ---"
-            grep -B 10 '#endif // defined(_WIN32) || defined(__APPLE__)' "$CMAFFINITY_CXX_PATH" || echo "Could not find '#endif // defined(_WIN32) || defined(__APPLE__)' in patched file."
-            echo "--- End of Problematic section ---"
-            exit 1
-        fi
-
-        echo "--- cmAffinity.cxx content AFTER patching (relevant section) ---"
-        # Display lines around the patched area for visual inspection
-        grep -C 10 'else /* POSIX */' "$CMAFFINITY_CXX_PATH" || echo "Could not find 'else /* POSIX */' after patching for full display."
-        grep -C 5 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" || echo "pthread_getaffinity_np not found (good if skipped by conditional compilation)."
-        echo "--- End of AFTER patching content ---"
+        echo "--- cmAffinity.cxx content AFTER patching (relevant section by grep) ---"
+        # Tampilkan baris di sekitar pthread_getaffinity_np untuk inspeksi visual
+        grep -C 10 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" || echo "pthread_getaffinity_np not found (good if skipped by conditional compilation)."
+        echo "--- End of AFTER patching content (grep) ---"
         echo "--- End of cmAffinity.cxx patch verification ---"
 
     - name: Create dummy android_lf.h
