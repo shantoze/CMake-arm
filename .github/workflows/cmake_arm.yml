@@ -161,21 +161,42 @@ jobs:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
-        echo "Patching $CMAFFINITY_CXX_PATH to disable pthread affinity for Android."
+        echo "Patching $CMAFFINITY_CXX_PATH to disable pthread affinity for Android using awk."
 
-        # Insert #if !defined(ANDROID) after the POSIX block's opening #else
-        # Using \n in the sed command to ensure the text is on a new line.
-        sed -i '/^#  else \/\* POSIX \*\//a\n#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
+        # Use awk to insert the #if and #endif directives
+        awk '
+        /^#  else \/\* POSIX \*\// {
+            print; # Print the original line
+            print "#if !defined(ANDROID)"; # Insert the #if directive
+            next; # Skip to next line to avoid default print
+        }
+        /^#  endif \/\/ defined(_WIN32) || defined(__APPLE__)$/ {
+            print "#endif // !defined(ANDROID)"; # Insert the #endif directive
+            print; # Print the original line
+            next; # Skip to next line to avoid default print
+        }
+        { print } # Default action: print the current line
+        ' "$CMAFFINITY_CXX_PATH" > "${CMAFFINITY_CXX_PATH}.tmp" && mv "${CMAFFINITY_CXX_PATH}.tmp" "$CMAFFINITY_CXX_PATH"
 
-        # Insert #endif // !defined(ANDROID) before the platform-specific #endif for POSIX.
-        # Using \n in the sed command to ensure the text is on a new line.
-        sed -i '/^#  endif \/\/ defined(_WIN32) || defined(__APPLE__)$/i\n#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
+        echo "Patch applied. Verifying changes in cmAffinity.cxx:"
+        # Verify the presence of the inserted lines and surrounding context
+        if grep -A 5 '#else /* POSIX */' "$CMAFFINITY_CXX_PATH" | grep -q '#if !defined(ANDROID)'; then
+            echo "Verification: '#if !defined(ANDROID)' found correctly after '#else /* POSIX */'."
+        else
+            echo "Error: '#if !defined(ANDROID)' NOT found or incorrectly placed after '#else /* POSIX */'."
+            exit 1
+        fi
 
-        echo "Patch applied. Showing relevant sections of cmAffinity.cxx:"
-        # Display lines around the patched area to verify the changes
+        if grep -B 5 '#endif // defined(_WIN32) || defined(__APPLE__)' "$CMAFFINITY_CXX_PATH" | grep -q '#endif // !defined(ANDROID)'; then
+            echo "Verification: '#endif // !defined(ANDROID)' found correctly before platform-specific #endif."
+        else
+            echo "Error: '#endif // !defined(ANDROID)' NOT found or incorrectly placed before platform-specific #endif."
+            exit 1
+        fi
+
+        # Display lines around the patched area for visual inspection
         head -n 100 "$CMAFFINITY_CXX_PATH" | tail -n 80
-        grep -C 5 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" || echo "pthread_getaffinity_np not found (good if skipped)."
-        grep -C 5 '#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" || echo "Patching #if !defined(ANDROID) might have failed."
+        grep -C 5 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" || echo "pthread_getaffinity_np not found (good if skipped by conditional compilation)."
         echo "--- End of cmAffinity.cxx patch verification ---"
 
     - name: Create dummy android_lf.h
