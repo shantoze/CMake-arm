@@ -162,51 +162,26 @@ jobs:
         echo "Cloning CMake version ${{ env.CMAKE_VERSION_TAG }}"
         git clone --depth 1 --branch ${{ env.CMAKE_VERSION_TAG }} https://github.com/Kitware/CMake.git ${{ runner.temp }}/cmake_src
 
-    - name: Patch Source/CMakeLists.txt to set CMAKE_USE_CPU_AFFINITY to OFF for Android
+    # Removed previous patch for Source/CMakeLists.txt related to CMAKE_USE_CPU_AFFINITY
+    # Removed previous patch for Source/cmAffinity.cxx related to CMAKE_USE_CPU_AFFINITY
+
+    - name: Display patched Source/CMakeLists.txt (for original content)
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAKE_LISTS_PATH="$CMAKE_SOURCE_DIR/Source/CMakeLists.txt"
-        echo "Patching $CMAKE_LISTS_PATH to set CMAKE_USE_CPU_AFFINITY to OFF for Android."
-
-        sed -i '/if(CMAKE_SYSTEM_NAME MATCHES "Linux")/i\if(ANDROID)\n  message(STATUS "Disabling CMAKE_USE_CPU_AFFINITY for Android build.")\n  set(CMAKE_USE_CPU_AFFINITY OFF CACHE INTERNAL "Turned off for Android build." FORCE)\nendif()' "$CMAKE_LISTS_PATH"
-
-        echo "Patch applied. Showing relevant section of Source/CMakeLists.txt:"
-        grep -C 5 'Disabling CMAKE_USE_CPU_AFFINITY' "$CMAKE_LISTS_PATH" || echo "Could not find patched section using grep."
-
-    - name: Patch Source/cmAffinity.cxx to explicitly disable CPU affinity for Android compilation
-      env:
-        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
-      run: |
-        CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
-        echo "Patching $CMAFFINITY_CXX_PATH to explicitly disable CPU affinity via preprocessor directives for Android."
-
-        # Insert #if/#undef/#define/#endif block at the very beginning of the file
-        sed -i '1i#if defined(ANDROID)\n#undef CMAKE_USE_CPU_AFFINITY\n#define CMAKE_USE_CPU_AFFINITY 0\n#endif\n' "$CMAFFINITY_CXX_PATH"
-
-        echo "Patch applied. Showing first few lines of cmAffinity.cxx:"
-        head -n 10 "$CMAFFINITY_CXX_PATH"
-        echo "--- End of cmAffinity.cxx header patch ---"
-
-    - name: Display patched Source/CMakeLists.txt
-      env:
-        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
-      run: |
-        CMAKE_LISTS_PATH="$CMAKE_SOURCE_DIR/Source/CMakeLists.txt"
-        echo "--- Content of patched Source/CMakeLists.txt ---"
+        echo "--- Content of Source/CMakeLists.txt (original for this feature) ---"
         cat "$CMAKE_LISTS_PATH"
         echo "--- End of Source/CMakeLists.txt content ---"
 
-    - name: Verify cmAffinity.cxx content (for general integrity)
+    - name: Verify cmAffinity.cxx content (for original content)
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
-        echo "Displaying cmAffinity.cxx content around the main #if condition AND header:"
-        head -n 15 "$CMAFFINITY_CXX_PATH" # Show more lines from the top to include the new patch
+        echo "Displaying cmAffinity.cxx content (original for this feature):"
+        head -n 50 "$CMAFFINITY_CXX_PATH" # Show first 50 lines
         grep -C 5 '^#if defined(CMAKE_USE_CPU_AFFINITY)' "$CMAFFINITY_CXX_PATH" || echo "Could not locate main CPU affinity #if condition."
-        echo "--- Full content of cmAffinity.cxx for inspection (truncated for brevity) ---"
-        head -n 50 "$CMAFFINITY_CXX_PATH"
         echo "--- End of cmAffinity.cxx content (truncated) ---"
 
     - name: Create dummy android_lf.h
@@ -317,7 +292,8 @@ jobs:
               -DBUILD_TESTING=OFF \
               -Wno-dev \
               -DCMAKE_C_USE_PRECOMPILED_HEADERS=FALSE \
-              -DCMAKE_CXX_USE_PRECOMPILED_HEADERS=FALSE
+              -DCMAKE_CXX_USE_PRECOMPILED_HEADERS=FALSE \
+              -DCMAKE_USE_CPU_AFFINITY=0 # <-- New: Explicitly disable CPU affinity
 
         if [ $? -ne 0 ]; then
           echo "CMake configuration failed!"
