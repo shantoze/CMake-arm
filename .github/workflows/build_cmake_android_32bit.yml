@@ -89,16 +89,19 @@ jobs:
       run: |
         git clone --depth 1 --branch ${{ env.CMAKE_VERSION_TAG }} https://github.com/Kitware/CMake.git ${{ runner.temp }}/cmake_src
 
-    - name: Patch core.c to stub CPU affinity symbols for Android
+    - name: Patch cmlibuv core.c affinity for Android
       run: |
         CORE_C="${{ runner.temp }}/cmake_src/Utilities/cmlibuv/src/unix/core.c"
-        sed -i '1i\
-#ifdef __ANDROID__\n\
-#define CPU_SETSIZE 1\n\
-typedef int cpu_set_t;\n\
-static int sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask) { return 0; }\n\
-static int CPU_COUNT(const cpu_set_t *set) { return 1; }\n\
-#endif\n' "$CORE_C"
+        cat <<'EOF' > patch_affinity.h
+#ifdef __ANDROID__
+#define CPU_SETSIZE 1
+typedef int cpu_set_t;
+typedef int pid_t;
+static int sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask) { return 0; }
+static int CPU_COUNT(const cpu_set_t *set) { return 1; }
+#endif
+EOF
+        cat patch_affinity.h "$CORE_C" > temp_core.c && mv temp_core.c "$CORE_C"
         head -20 "$CORE_C"
 
     - name: Configure CMake for Android
@@ -134,10 +137,4 @@ static int CPU_COUNT(const cpu_set_t *set) { return 1; }\n\
         cd "$CMAKE_BUILD_DIR"
         make install
         echo "Contents of $INSTALL_DIR:"
-        ls -lA "$INSTALL_DIR"
-
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: cmake-${{ env.CMAKE_VERSION_TAG }}-android-armeabi-v7a
-        path: ${{ runner.temp }}/cmake_android_install
+        ls -lA "$INSTALL_DIR: ${{ runner.temp }}/cmake_android_install
