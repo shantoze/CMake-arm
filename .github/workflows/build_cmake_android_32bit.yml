@@ -1,4 +1,4 @@
-name: Build CMake for Android (armeabi-v7a)
+name: Build CMake for Android (armeabi-v7a) - API 34
 
 on:
   workflow_dispatch: # Allows manual triggering of the workflow
