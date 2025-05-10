@@ -176,24 +176,14 @@ jobs:
         grep -C 10 '#  else' "$CMAFFINITY_CXX_PATH" || echo "Could not find '#  else' before patching. Check output above for full file content."
         echo "--- End of BEFORE patching content (grep) ---"
 
-        echo "Patching $CMAFFINITY_CXX_PATH to disable pthread affinity for Android using awk."
+        echo "Patching $CMAFFINITY_CXX_PATH to disable pthread affinity for Android using sed."
 
-        # Use awk to insert the #if and #endif directives with the corrected patterns
-        awk '
-        /^#  else$/ { # Match exactly '#  else'
-            print "DEBUG: Matched start pattern (simple else): " $0;
-            print; # Print the original line
-            print "#if !defined(ANDROID)"; # Insert the #if directive
-            next; # Skip to next line to avoid default print
-        }
-        /^#  endif$/ { # Match exactly '#  endif'
-            print "DEBUG: Matched end pattern (simple endif): " $0;
-            print "#endif // !defined(ANDROID)"; # Insert the #endif directive
-            print; # Print the original line
-            next; # Skip to next line to avoid default print
-        }
-        { print } # Default action: print the current line
-        ' "$CMAFFINITY_CXX_PATH" > "${CMAFFINITY_CXX_PATH}.tmp" && mv "${CMAFFINITY_CXX_PATH}.tmp" "$CMAFFINITY_CXX_PATH"
+        # Use sed to insert the #if and #endif directives
+        # Insert #if !defined(ANDROID) after '#  else'
+        sed -i '/^#  else$/a#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
+
+        # Insert #endif // !defined(ANDROID) before '#  endif'
+        sed -i '/^#  endif$/i#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
 
         echo "Patch applied. Verifying changes in cmAffinity.cxx:"
         # Verify if both #if and #endif were added
