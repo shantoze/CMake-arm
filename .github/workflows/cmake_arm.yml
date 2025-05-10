@@ -163,13 +163,9 @@ jobs:
         CMAKE_LISTS_PATH="$CMAKE_SOURCE_DIR/Source/CMakeLists.txt"
         echo "Patching $CMAKE_LISTS_PATH to disable CMAKE_USE_CPU_AFFINITY for Android."
 
-        # Insert lines before the line that matches "if(CMAKE_SYSTEM_NAME MATCHES "Linux")"
-        sed -i '/if(CMAKE_SYSTEM_NAME MATCHES "Linux")/i\
-if(ANDROID)\
-  message(STATUS "Disabling CMAKE_USE_CPU_AFFINITY for Android build.")\
-  set(CMAKE_USE_CPU_AFFINITY OFF CACHE INTERNAL "Turned off for Android build." FORCE)\
-endif()\
-' "$CMAKE_LISTS_PATH"
+        # --- PERUBAHAN PENTING: SELURUH PERINTAH SED SEKARANG DALAM SATU BARIS DI FILE YAML ---
+        sed -i '/if(CMAKE_SYSTEM_NAME MATCHES "Linux")/i\if(ANDROID)\n  message(STATUS "Disabling CMAKE_USE_CPU_AFFINITY for Android build.")\n  set(CMAKE_USE_CPU_AFFINITY OFF CACHE INTERNAL "Turned off for Android build." FORCE)\nendif()' "$CMAKE_LISTS_PATH"
+        # --- AKHIR PERUBAHAN PENTING ---
 
         echo "Patch applied. Showing relevant section of Source/CMakeLists.txt:"
         grep -C 5 'Disabling CMAKE_USE_CPU_AFFINITY' "$CMAKE_LISTS_PATH" || echo "Could not find patched section using grep."
@@ -237,26 +233,26 @@ endif()\
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
-        echo "Patching Utilities/cmlibuv/src/unix/pipe.c to include unistd.h and define _GNU_SOURCE"
-        sed -i '1i#define _GNU_SOURCE' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
-        sed -i '2i#include <unistd.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
-        echo "Patch applied. Showing first few lines of pipe.c:"
-        head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
+            echo "Patching Utilities/cmlibuv/src/unix/pipe.c to include unistd.h and define _GNU_SOURCE"
+            sed -i '1i#define _GNU_SOURCE' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
+            sed -i '2i#include <unistd.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
+            echo "Patch applied. Showing first few lines of pipe.c:"
+            head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
 
     - name: Patch cmlibuv process.c for sched.h, pthread.h, defines, and stub for pthread_setaffinity_np (revised sed)
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
-        echo "Patching Utilities/cmlibuv/src/unix/process.c"
-        sed -i '1i#define _GNU_SOURCE' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
-        sed -i '2i#include <sched.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
-        sed -i '3i#include <pthread.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
-        sed -i '4i#ifndef pthread_setaffinity_np' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
-        sed -i '5i#warning "Using stub pthread_setaffinity_np - actual function may be missing or require different defines"' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
-        sed -i '6iint pthread_setaffinity_np(pthread_t, size_t, const cpu_set_t *);' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
-        sed -i '7i#endif' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
-        echo "Patch applied. Showing first few lines of process.c:"
-        head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+            echo "Patching Utilities/cmlibuv/src/unix/process.c"
+            sed -i '1i#define _GNU_SOURCE' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+            sed -i '2i#include <sched.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+            sed -i '3i#include <pthread.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+            sed -i '4i#ifndef pthread_setaffinity_np' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+            sed -i '5i#warning "Using stub pthread_setaffinity_np - actual function may be missing or require different defines"' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+            sed -i '6iint pthread_setaffinity_np(pthread_t, size_t, const cpu_set_t *);' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+            sed -i '7i#endif' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
+            echo "Patch applied. Showing first few lines of process.c:"
+            head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
 
     - name: Clean previous build artifacts (Aggressive)
       env:
