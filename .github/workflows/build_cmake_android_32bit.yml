@@ -32,17 +32,15 @@ jobs:
         export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
         echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
 
-        mkdir -p "$ANDROID_SDK_ROOT" # <-- Perintah yang membuat direktori
-        # --- START: Debugging: Verify SDK root directory exists ---
+        mkdir -p "$ANDROID_SDK_ROOT"
         echo "Verifying creation of SDK root directory: $ANDROID_SDK_ROOT"
         if [ -d "$ANDROID_SDK_ROOT" ]; then
           echo "SDK root directory exists."
         else
           echo "Error: SDK root directory '$ANDROID_SDK_ROOT' DOES NOT EXIST after mkdir -p."
           ls -lA "$(dirname "$ANDROID_SDK_ROOT")" || echo "Cannot list parent directory."
-          exit 1 # Gagalkan langkah jika direktori tidak dibuat
+          exit 1
         fi
-        # --- END: Debugging: Verify SDK root directory exists ---
 
         echo "Downloading Android command line tools..."
         SDK_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
@@ -55,13 +53,12 @@ jobs:
 
         echo "Adding SDK tools to PATH"
         echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
-        export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH" # Also for current script
+        export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
 
         echo "Verifying sdkmanager..."
         which sdkmanager || { echo "sdkmanager not found on PATH after setup."; exit 1; }
 
         echo "Updating SDK (verbose)..."
-        # Removed > /dev/null to see output from sdkmanager --update
         yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --update
 
         echo "Installing NDK ('${{ env.ANDROID_NDK_VERSION_PACKAGE }}'), platforms, build-tools, SDK's CMake ('${{ env.ANDROID_SDK_CMAKE_VERSION }}')..."
@@ -149,12 +146,9 @@ jobs:
             echo "NDK toolchain file found successfully."
         fi
 
-
     - name: Install build tools (cmake, make, ninja for host)
       run: |
         sudo apt-get update -qq
-        # This installs cmake, make, ninja-build on the runner for building the CMake source.
-        # This is separate from the Android SDK's CMake.
         sudo apt-get install -y cmake make ninja-build git
 
     - name: Clone CMake source code (version ${{ env.CMAKE_VERSION_TAG }})
@@ -162,7 +156,6 @@ jobs:
         echo "Cloning CMake version ${{ env.CMAKE_VERSION_TAG }}"
         git clone --depth 1 --branch ${{ env.CMAKE_VERSION_TAG }} https://github.com/Kitware/CMake.git ${{ runner.temp }}/cmake_src
 
-    # --- START: Patch Source/CMakeLists.txt to disable CMAKE_USE_CPU_AFFINITY for Android ---
     - name: Patch Source/CMakeLists.txt to disable CMAKE_USE_CPU_AFFINITY for Android
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
@@ -180,27 +173,18 @@ endif()\
 
         echo "Patch applied. Showing relevant section of Source/CMakeLists.txt:"
         grep -C 5 'Disabling CMAKE_USE_CPU_AFFINITY' "$CMAKE_LISTS_PATH" || echo "Could not find patched section using grep."
-    # --- END: Patch Source/CMakeLists.txt to disable CMAKE_USE_CPU_AFFINITY for Android ---
 
-    # --- START: DEBUG STEP: Verify cmAffinity.cxx content after patch (Enhanced) ---
-    # This step is now for general file integrity check rather than specific patch verification
-    # as the strategy shifted to CMakeLists.txt modification.
     - name: Verify cmAffinity.cxx content (for general integrity)
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
         echo "Displaying cmAffinity.cxx content around the main #if condition:"
-        
-        # Check if the original #if is present (should be, as it's not directly patched now)
         grep -C 5 '^#if defined(CMAKE_USE_CPU_AFFINITY)' "$CMAFFINITY_CXX_PATH" || echo "Could not locate main CPU affinity #if condition."
-
         echo "--- Full content of cmAffinity.cxx for inspection ---"
         cat "$CMAFFINITY_CXX_PATH"
         echo "--- End of cmAffinity.cxx content ---"
-    # --- END: DEBUG STEP ---
 
-    # --- START: Tambahkan langkah membuat dummy android_lf.h ---
     - name: Create dummy android_lf.h
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
@@ -208,14 +192,11 @@ endif()\
         DUMMY_HEADER_DIR="$CMAKE_SOURCE_DIR/Utilities/cmlibarchive/contrib/android/include"
         DUMMY_HEADER_PATH="$DUMMY_HEADER_DIR/android_lf.h"
         echo "Creating dummy file: $DUMMY_HEADER_PATH"
-        mkdir -p "$DUMMY_HEADER_DIR" # Pastikan direktori ada
-        touch "$DUMMY_HEADER_PATH" # Membuat file kosong
+        mkdir -p "$DUMMY_HEADER_DIR"
+        touch "$DUMMY_HEADER_PATH"
         echo "Dummy file created."
-        ls -l "$DUMMY_HEADER_PATH" # Tampilkan informasi file dummy
-    # --- END: Tambahkan langkah membuat dummy android_lf.h ---
+        ls -l "$DUMMY_HEADER_PATH"
 
-    # --- START: Langkah patching baru untuk mengomentari include android_lf.h ---
-    # Kita pertahankan langkah patching ini, just in case
     - name: Patch cmlibarchive archive.h to comment out android_lf.h include
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
@@ -225,10 +206,7 @@ endif()\
         sed -i 's/#include "android_lf.h"/ \/\/ #include "android_lf.h"/' "$ARCHIVE_H_PATH"
         echo "Patch applied. Showing relevant section of archive.h:"
         grep -C 1 "android_lf.h" "$CMAKE_SOURCE_DIR/Utilities/cmlibarchive/libarchive/archive.h" || echo "Could not find patched section using grep."
-    # --- END: Langkah patching archive.h (komentar) ---
 
-    # --- START: Langkah Verifikasi Patch archive.h (Cek Komentar) ---
-    # Kita pertahankan langkah verifikasi ini
     - name: Verify cmlibarchive archive.h patch (commented out)
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
@@ -240,68 +218,46 @@ endif()\
         else
            echo "Error: Include line NOT successfully commented out."
            echo "Content of "$ARCHIVE_H_PATH":"
-           cat "$ARCHIVE_H_PATH" # Dump the file content for inspection
+           cat "$ARCHIVE_H_PATH"
            exit 1
         fi
         echo "Patch verification complete."
-    # --- END: Langkah Verifikasi Patch archive.h (Cek Komentar) ---
 
-
-    # --- START: Langkah patching untuk memperbaiki error sched.h (core.c) ---
     - name: Patch cmlibuv core.c for sched.h includes
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         echo "Patching Utilities/cmlibuv/src/unix/core.c to include sched.h"
-        # Menggunakan sed untuk menyisipkan baris di awal file
-        # Sisipkan #define _GNU_SOURCE di baris 1
         sed -i '1i#define _GNU_SOURCE' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/core.c"
-        # Sisipkan #include <sched.h> di baris 2 (yang kini berada setelah define)
         sed -i '2i#include <sched.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/core.c"
-
         echo "Patch applied. Showing first few lines of core.c:"
         head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/core.c"
-    # --- END: Langkah patching sched.h ---
 
-    # --- START: Langkah patching untuk memperbaiki error pipe2 (pipe.c) ---
     - name: Patch cmlibuv pipe.c for unistd.h and pipe2 define
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         echo "Patching Utilities/cmlibuv/src/unix/pipe.c to include unistd.h and define _GNU_SOURCE"
-        # Menggunakan sed untuk menyisipkan baris di awal file
-        # Sisipkan #define _GNU_SOURCE di baris 1
         sed -i '1i#define _GNU_SOURCE' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
-        # Sisipkan #include <unistd.h> di baris 2
         sed -i '2i#include <unistd.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
-
         echo "Patch applied. Showing first few lines of pipe.c:"
         head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
-    # --- END: Langkah patching pipe2 ---
 
-    # --- START: Langkah patching untuk memperbaiki error CPU affinity (process.c) ---
     - name: Patch cmlibuv process.c for sched.h, pthread.h, defines, and stub for pthread_setaffinity_np (revised sed)
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         echo "Patching Utilities/cmlibuv/src/unix/process.c"
-        # Tambahkan define dan include di bagian paling atas
         sed -i '1i#define _GNU_SOURCE' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
         sed -i '2i#include <sched.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
         sed -i '3i#include <pthread.h>' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
-
-        # Tambahkan deklarasi kondisional untuk pthread_setaffinity_np jika belum dideklarasikan
-        # Sisipkan baris demi baris menggunakan perintah sed terpisah
         sed -i '4i#ifndef pthread_setaffinity_np' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
         sed -i '5i#warning "Using stub pthread_setaffinity_np - actual function may be missing or require different defines"' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
         sed -i '6iint pthread_setaffinity_np(pthread_t, size_t, const cpu_set_t *);' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
         sed -i '7i#endif' "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
-
         echo "Patch applied. Showing first few lines of process.c:"
         head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
-    # --- END: Langkah patching process.c ---
 
-    # --- START: Tambahkan langkah make clean (AGRESIF) (DIPINDAHKAN KE SINI) ---
     - name: Clean previous build artifacts (Aggressive)
       env:
         CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
@@ -309,7 +265,6 @@ endif()\
         echo "Performing aggressive clean: Removing entire build directory: "$CMAKE_BUILD_DIR""
         rm -rf "$CMAKE_BUILD_DIR"
         echo "Aggressive clean complete."
-    # --- END: Tambahkan langkah make clean (AGRESIF) ---
 
     - name: Konfigurasi build CMake untuk Android armeabi-v7a
       env:
@@ -318,8 +273,7 @@ endif()\
         INSTALL_DIR: ${{ runner.temp }}/cmake_android_install
       run: |
         echo "Configuring CMake build for Android (armeabi-v7a)..."
-        # `cmake` akan membuat direktori build jika belum ada
-        mkdir -p "$CMAKE_BUILD_DIR" # Pastikan direktori ada sebelum cd
+        mkdir -p "$CMAKE_BUILD_DIR"
         cd "$CMAKE_BUILD_DIR"
 
         export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
@@ -330,9 +284,6 @@ endif()\
         echo "Targeting Android API level: ${{ env.ANDROID_PLATFORM }}"
         echo "Targeting Android ABI: armeabi-v7a"
 
-        # This cmake command uses the host's cmake (installed in previous step)
-        # to configure the build of CMake sources for Android.
-        # PASTIKAN TIDAK ADA SPASI SETELAH BACKSLASH DI SETIAP AKHIR BARIS DI BAWAH INI
         cmake "$CMAKE_SOURCE_DIR" \
               -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
               -DANDROID_ABI=armeabi-v7a \
@@ -346,22 +297,20 @@ endif()\
 
         if [ $? -ne 0 ]; then
           echo "CMake configuration failed!"
-          echo "CMakeOutput.log content:"
           cat "$CMAKE_BUILD_DIR/CMakeFiles/CMakeOutput.log" || echo "CMakeOutput.log not found."
-          echo "CMakeError.log content:"
           cat "$CMAKE_BUILD_DIR/CMakeFiles/CMakeError.log" || echo "CMakeError.log not found."
           exit 1
         fi
         echo "CMake configuration successful."
 
-    - name: Build CMake with make (Verbose) # Nama langkah diubah
+    - name: Build CMake with make (Verbose)
       env:
         CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
         INSTALL_DIR: ${{ runner.temp }}/cmake_android_install
       run: |
         echo "Building CMake using make with VERBOSE=1..."
-        cd "$CMAKE_BUILD_DIR" # Masuk ke direktori build yang sudah berisi Makefile dari langkah Konfigurasi
-        make VERBOSE=1 -j$(nproc) # <--- VERBOSE=1 ditambahkan
+        cd "$CMAKE_BUILD_DIR"
+        make VERBOSE=1 -j$(nproc)
         if [ $? -ne 0 ]; then
           echo "Make build failed!"
           exit 1
