@@ -315,10 +315,11 @@ jobs:
     - name: Display CMake variables after configuration
       env:
         CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         echo "--- CMake Variables (cmake -L) ---"
         cd "$CMAKE_BUILD_DIR"
-        cmake -L
+        cmake -L "$CMAKE_SOURCE_DIR"
         echo "--- End of CMake Variables ---"
 
     - name: Build CMake with make (Verbose)
