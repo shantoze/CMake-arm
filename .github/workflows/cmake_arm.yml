@@ -161,10 +161,20 @@ jobs:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
-        echo "--- cmAffinity.cxx content BEFORE patching (relevant section) ---"
+
+        echo "--- Displaying full content of $CMAFFINITY_CXX_PATH BEFORE patching ---"
+        if [ -f "$CMAFFINITY_CXX_PATH" ]; then
+          cat "$CMAFFINITY_CXX_PATH"
+        else
+          echo "Error: File not found at $CMAFFINITY_CXX_PATH"
+          exit 1
+        fi
+        echo "--- End of full content display ---"
+
+        echo "--- cmAffinity.cxx content BEFORE patching (relevant section by grep) ---"
         # Tampilkan 10 baris sebelum dan sesudah baris target pertama
-        grep -C 10 '#  else /* POSIX */' "$CMAFFINITY_CXX_PATH" || echo "Could not find '#  else /* POSIX */' before patching."
-        echo "--- End of BEFORE patching content ---"
+        grep -C 10 '#  else /* POSIX */' "$CMAFFINITY_CXX_PATH" || echo "Could not find '#  else /* POSIX */' before patching. Check output above for full file content."
+        echo "--- End of BEFORE patching content (grep) ---"
 
         echo "Patching $CMAFFINITY_CXX_PATH to disable pthread affinity for Android using awk."
 
