@@ -301,6 +301,15 @@ jobs:
         head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/process.c"
     # --- END: Langkah patching process.c ---
 
+    # --- START: Tambahkan langkah make clean (AGRESIF) (DIPINDAHKAN KE SINI) ---
+    - name: Clean previous build artifacts (Aggressive)
+      env:
+        CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
+      run: |
+        echo "Performing aggressive clean: Removing entire build directory: "$CMAKE_BUILD_DIR""
+        rm -rf "$CMAKE_BUILD_DIR"
+        echo "Aggressive clean complete."
+    # --- END: Tambahkan langkah make clean (AGRESIF) ---
 
     - name: Konfigurasi build CMake untuk Android armeabi-v7a
       env:
@@ -309,7 +318,8 @@ jobs:
         INSTALL_DIR: ${{ runner.temp }}/cmake_android_install
       run: |
         echo "Configuring CMake build for Android (armeabi-v7a)..."
-        mkdir -p "$CMAKE_BUILD_DIR"
+        # `cmake` akan membuat direktori build jika belum ada
+        mkdir -p "$CMAKE_BUILD_DIR" # Pastikan direktori ada sebelum cd
         cd "$CMAKE_BUILD_DIR"
 
         export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
@@ -344,25 +354,13 @@ jobs:
         fi
         echo "CMake configuration successful."
 
-    # --- START: Tambahkan langkah make clean (AGRESIF) ---
-    - name: Clean previous build artifacts (Aggressive)
-      env:
-        CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
-      run: |
-        echo "Performing aggressive clean: Removing entire build directory: "$CMAKE_BUILD_DIR""
-        rm -rf "$CMAKE_BUILD_DIR"
-        echo "Aggressive clean complete."
-    # --- END: Tambahkan langkah make clean (AGRESIF) ---
-
     - name: Build CMake with make (Verbose) # Nama langkah diubah
       env:
         CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
         INSTALL_DIR: ${{ runner.temp }}/cmake_android_install
       run: |
         echo "Building CMake using make with VERBOSE=1..."
-        # Kita perlu masuk ke direktori build lagi setelah rm -rf di langkah sebelumnya
-        mkdir -p "$CMAKE_BUILD_DIR" # Buat ulang direktori build jika rm -rf menghapusnya
-        cd "$CMAKE_BUILD_DIR"
+        cd "$CMAKE_BUILD_DIR" # Masuk ke direktori build yang sudah berisi Makefile dari langkah Konfigurasi
         make VERBOSE=1 -j$(nproc) # <--- VERBOSE=1 ditambahkan
         if [ $? -ne 0 ]; then
           echo "Make build failed!"
