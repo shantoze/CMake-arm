@@ -162,59 +162,42 @@ jobs:
         echo "Cloning CMake version ${{ env.CMAKE_VERSION_TAG }}"
         git clone --depth 1 --branch ${{ env.CMAKE_VERSION_TAG }} https://github.com/Kitware/CMake.git ${{ runner.temp }}/cmake_src
 
-    # --- START: Revised Patch cmAffinity.cxx for pthread_affinity functions (Direct Conditional) ---
-    - name: Patch cmAffinity.cxx for pthread_affinity functions (Direct Conditional)
+    # --- START: Patch cmAffinity.cxx to exclude Android from CPU Affinity (REVERTED to original clean patch) ---
+    - name: Patch cmAffinity.cxx to exclude Android from CPU Affinity
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
-        echo "Applying direct conditional patch to $CMAFFINITY_CXX_PATH for pthread_affinity functions."
+        echo "Patching $CMAFFINITY_CXX_PATH to exclude Android from CPU affinity features (reverted to original clean patch)."
 
-        # Insert #if !defined(ANDROID) before lines containing pthread_getaffinity_np or pthread_setaffinity_np
-        # Using a single sed command with branching logic for efficiency
-        sed -i '/pthread_getaffinity_np\|pthread_setaffinity_np/{
-          i#if !defined(ANDROID)
-          a#endif
-        }' "$CMAFFINITY_CXX_PATH"
+        # Modify the existing #if condition to include !defined(ANDROID)
+        sed -i 's/^#if defined(CMAKE_USE_CPU_AFFINITY) && defined(__linux__)/#if defined(CMAKE_USE_CPU_AFFINITY) && defined(__linux__) && !defined(ANDROID)/' "$CMAFFINITY_CXX_PATH"
 
-        echo "Patch applied. Showing relevant sections of cmAffinity.cxx:"
-        grep -C 5 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" || echo "Could not find pthread_getaffinity_np section using grep."
-        grep -C 5 'pthread_setaffinity_np' "$CMAFFINITY_CXX_PATH" || echo "Could not find pthread_setaffinity_np section using grep."
-    # --- END: Revised Patch cmAffinity.cxx for pthread_affinity functions (Direct Conditional) ---
+        echo "Patch applied. Showing relevant section of cmAffinity.cxx (from grep):"
+        grep -A 5 'defined(CMAKE_USE_CPU_AFFINITY)' "$CMAFFINITY_CXX_PATH" || echo "Could not find patched section using grep."
+    # --- END: Patch cmAffinity.cxx to exclude Android from CPU Affinity ---
 
-    # --- START: NEW DEBUG STEP: Verify cmAffinity.cxx content after patch ---
-    - name: Verify cmAffinity.cxx content after patch
+    # --- START: NEW DEBUG STEP: Verify cmAffinity.cxx content after patch (Enhanced) ---
+    - name: Verify cmAffinity.cxx content after patch (Enhanced)
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
-        echo "Displaying cmAffinity.cxx content around line 53 (the error line) and the main #if condition:"
+        echo "Displaying cmAffinity.cxx content around the main #if condition:"
         
-        echo "--- Content around the main #if condition for CPU affinity (grep -C 5) ---"
-        # Menampilkan beberapa baris di sekitar baris #if yang seharusnya di-patch
-        # (Menyesuaikan pola grep jika diperlukan, tergantung pada file asli)
+        # Check if the #if has been modified as expected
         grep -C 5 '^#if defined(CMAKE_USE_CPU_AFFINITY)' "$CMAFFINITY_CXX_PATH" || echo "Could not locate main CPU affinity #if condition."
 
-        echo "--- Content around GetThreadAffinity function (line 53 context) ---"
-        # Menampilkan 10 baris sebelum dan 10 baris setelah baris 53
-        # (Sesuaikan angka jika kode lain memengaruhi lokasi baris)
-        head -n 63 "$CMAFFINITY_CXX_PATH" | tail -n 20 || echo "Could not get content around line 53."
+        echo "--- Full content of cmAffinity.cxx for inspection ---"
+        cat "$CMAFFINITY_CXX_PATH"
+        echo "--- End of cmAffinity.cxx content ---"
 
-        echo "--- Full GetThreadAffinity function content (awk) ---"
-        # Mencoba menampilkan seluruh fungsi GetThreadAffinity untuk melihat bagaimana pembungkus #if bekerja
-        awk '/^std::vector<int> cmAffinity::GetThreadAffinity()/ {
-          print; # print the function signature
-          found=1;
-          nest_level=0;
-          next;
-        }
-        found {
-          print;
-          if ($0 ~ /{/) nest_level++;
-          if ($0 ~ /}/) nest_level--;
-          if (nest_level == 0 && $0 ~ /}/) { found=0; } # Stop after the outermost '}' of the function
-        }
-        ' "$CMAFFINITY_CXX_PATH" || echo "Could not extract GetThreadAffinity function content."
+        # Add a simple check to see if the patched string exists
+        if grep -q '#if defined(CMAKE_USE_CPU_AFFINITY) && defined(__linux__) && !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"; then
+          echo "SUCCESS: The desired patch string is found in cmAffinity.cxx!"
+        else
+          echo "WARNING: The desired patch string IS NOT FOUND in cmAffinity.cxx. Patch likely failed!"
+        fi
     # --- END: NEW DEBUG STEP ---
 
     # --- START: Tambahkan langkah membuat dummy android_lf.h ---
@@ -251,7 +234,7 @@ jobs:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         ARCHIVE_H_PATH="$CMAKE_SOURCE_DIR/Utilities/cmlibarchive/libarchive/archive.h"
-        echo "Verifying patch in $ARCHIVE_H_PATH (commented out check)..."
+        echo "Verifying patch in "$ARCHIVE_H_PATH" (commented out check)..."
         if grep -q '\/\/ #include "android_lf.h"' "$ARCHIVE_H_PATH"; then
            echo "Include line successfully commented out."
         else
@@ -361,21 +344,15 @@ jobs:
         fi
         echo "CMake configuration successful."
 
-    # --- START: Tambahkan langkah make clean ---
-    - name: Clean previous build artifacts
+    # --- START: Tambahkan langkah make clean (AGRESIF) ---
+    - name: Clean previous build artifacts (Aggressive)
       env:
         CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
       run: |
-        echo "Cleaning build directory: "$CMAKE_BUILD_DIR""
-        if [ -d "$CMAKE_BUILD_DIR" ]; then # Cek apakah direktori build ada sebelum clean
-          cd "$CMAKE_BUILD_DIR"
-          make clean
-          # Tidak menggunakan set -e ketat di sini karena make clean mungkin gagal jika direktori kosong/baru
-        else
-          echo "Build directory "$CMAKE_BUILD_DIR" does not exist, no cleaning needed."
-        fi
-        echo "Clean complete."
-    # --- END: Tambahkan langkah make clean ---
+        echo "Performing aggressive clean: Removing entire build directory: "$CMAKE_BUILD_DIR""
+        rm -rf "$CMAKE_BUILD_DIR"
+        echo "Aggressive clean complete."
+    # --- END: Tambahkan langkah make clean (AGRESIF) ---
 
     - name: Build CMake with make (Verbose) # Nama langkah diubah
       env:
@@ -383,6 +360,8 @@ jobs:
         INSTALL_DIR: ${{ runner.temp }}/cmake_android_install
       run: |
         echo "Building CMake using make with VERBOSE=1..."
+        # Kita perlu masuk ke direktori build lagi setelah rm -rf di langkah sebelumnya
+        mkdir -p "$CMAKE_BUILD_DIR" # Buat ulang direktori build jika rm -rf menghapusnya
         cd "$CMAKE_BUILD_DIR"
         make VERBOSE=1 -j$(nproc) # <--- VERBOSE=1 ditambahkan
         if [ $? -ne 0 ]; then
