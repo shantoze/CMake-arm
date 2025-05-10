@@ -17,6 +17,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # --- START: NEW SIMPLE DEBUG STEP ---
+    - name: Verify custom step execution
+      run: |
+        echo "Custom step executed successfully!"
+    # --- END: NEW SIMPLE DEBUG STEP ---
+
     - name: Set up Java
       uses: actions/setup-java@v4
       with:
@@ -61,7 +67,7 @@ jobs:
         echo "Updating SDK (verbose)..."
         yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --update
 
-        echo "Installing NDK ('${{ env.ANDROID_NDK_VERSION_PACKAGE }}'), platforms, build-tools, SDK's CMake ('${{ env.ANDROID_SDK_CMAKE_VERSION }}')..."
+        echo "Installing NDK ('${{ env.ANDROID_NDK_VERSION_PACKAGE }}'), platforms, build-tools, SDK's CMake ('${{ env.ANDROID_SDK_CMAKE_VERSION }}').."
         yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
           "platforms;${{ env.ANDROID_PLATFORM }}" \
           "build-tools;33.0.0" \
@@ -163,12 +169,19 @@ jobs:
         CMAKE_LISTS_PATH="$CMAKE_SOURCE_DIR/Source/CMakeLists.txt"
         echo "Patching $CMAKE_LISTS_PATH to disable CMAKE_USE_CPU_AFFINITY for Android."
 
-        # --- PERUBAHAN PENTING: SELURUH PERINTAH SED SEKARANG DALAM SATU BARIS DI FILE YAML ---
         sed -i '/if(CMAKE_SYSTEM_NAME MATCHES "Linux")/i\if(ANDROID)\n  message(STATUS "Disabling CMAKE_USE_CPU_AFFINITY for Android build.")\n  set(CMAKE_USE_CPU_AFFINITY OFF CACHE INTERNAL "Turned off for Android build." FORCE)\nendif()' "$CMAKE_LISTS_PATH"
-        # --- AKHIR PERUBAHAN PENTING ---
 
         echo "Patch applied. Showing relevant section of Source/CMakeLists.txt:"
         grep -C 5 'Disabling CMAKE_USE_CPU_AFFINITY' "$CMAKE_LISTS_PATH" || echo "Could not find patched section using grep."
+
+    - name: Display patched Source/CMakeLists.txt
+      env:
+        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
+      run: |
+        CMAKE_LISTS_PATH="$CMAKE_SOURCE_DIR/Source/CMakeLists.txt"
+        echo "--- Content of patched Source/CMakeLists.txt ---"
+        cat "$CMAKE_LISTS_PATH"
+        echo "--- End of Source/CMakeLists.txt content ---"
 
     - name: Verify cmAffinity.cxx content (for general integrity)
       env:
@@ -298,6 +311,15 @@ jobs:
           exit 1
         fi
         echo "CMake configuration successful."
+
+    - name: Display CMake variables after configuration
+      env:
+        CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
+      run: |
+        echo "--- CMake Variables (cmake -L) ---"
+        cd "$CMAKE_BUILD_DIR"
+        cmake -L
+        echo "--- End of CMake Variables ---"
 
     - name: Build CMake with make (Verbose)
       env:
