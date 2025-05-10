@@ -8,20 +8,14 @@ jobs:
     runs-on: ubuntu-latest # Specifies the runner environment
 
     env:
-      ANDROID_SDK_CMAKE_VERSION: "cmake;3.22.1" # Changed to a more common SDK CMake version
+      ANDROID_SDK_CMAKE_VERSION: "cmake;3.22.1" # Android SDK's CMake version
       ANDROID_NDK_VERSION_PACKAGE: "ndk;26.3.11579264" # NDK r26d
-      CMAKE_VERSION_TAG: "v3.29.3" # Version of CMake to build (this is for the source we are compiling)
-      ANDROID_PLATFORM: android-34 # <-- TARGET API LEVEL DIUBAH KE 34
+      CMAKE_VERSION_TAG: "v3.29.3" # Version of CMake source to build
+      ANDROID_PLATFORM: android-34 # Target Android API level
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    # --- START: NEW SIMPLE DEBUG STEP ---
-    - name: Verify custom step execution
-      run: |
-        echo "Custom step executed successfully!"
-    # --- END: NEW SIMPLE DEBUG STEP ---
 
     - name: Set up Java
       uses: actions/setup-java@v4
@@ -120,7 +114,7 @@ jobs:
         echo "NDK path (detected for next steps): $DETECTED_NDK_HOME"
         echo "SDK's CMake version requested: ${{ env.ANDROID_SDK_CMAKE_VERSION }}"
 
-    - name: Verifikasi SDK & NDK setup
+    - name: Verify SDK & NDK setup
       env:
         ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
         ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
@@ -162,27 +156,29 @@ jobs:
         echo "Cloning CMake version ${{ env.CMAKE_VERSION_TAG }}"
         git clone --depth 1 --branch ${{ env.CMAKE_VERSION_TAG }} https://github.com/Kitware/CMake.git ${{ runner.temp }}/cmake_src
 
-    # Removed previous patch for Source/CMakeLists.txt related to CMAKE_USE_CPU_AFFINITY
-    # Removed previous patch for Source/cmAffinity.cxx related to CMAKE_USE_CPU_AFFINITY
-
-    - name: Display patched Source/CMakeLists.txt (for original content)
-      env:
-        CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
-      run: |
-        CMAKE_LISTS_PATH="$CMAKE_SOURCE_DIR/Source/CMakeLists.txt"
-        echo "--- Content of Source/CMakeLists.txt (original for this feature) ---"
-        cat "$CMAKE_LISTS_PATH"
-        echo "--- End of Source/CMakeLists.txt content ---"
-
-    - name: Verify cmAffinity.cxx content (for original content)
+    - name: Patch Source/cmAffinity.cxx to disable pthread affinity for Android
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
         CMAFFINITY_CXX_PATH="$CMAKE_SOURCE_DIR/Source/cmAffinity.cxx"
-        echo "Displaying cmAffinity.cxx content (original for this feature):"
-        head -n 50 "$CMAFFINITY_CXX_PATH" # Show first 50 lines
-        grep -C 5 '^#if defined(CMAKE_USE_CPU_AFFINITY)' "$CMAFFINITY_CXX_PATH" || echo "Could not locate main CPU affinity #if condition."
-        echo "--- End of cmAffinity.cxx content (truncated) ---"
+        echo "Patching $CMAFFINITY_CXX_PATH to disable pthread affinity for Android."
+
+        # Insert #if !defined(ANDROID) after the POSIX block's opening #else
+        # This targets the exact line: #  else /* POSIX */
+        sed -i '/^#  else \/\* POSIX \*\//a\
+#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
+
+        # Insert #endif // !defined(ANDROID) before the platform-specific #endif for POSIX.
+        # This targets the exact line: #  endif // defined(_WIN32) || defined(__APPLE__)
+        sed -i '/^#  endif \/\/ defined(_WIN32) || defined(__APPLE__)$/i\
+#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
+
+        echo "Patch applied. Showing relevant sections of cmAffinity.cxx:"
+        # Display lines around the patched area to verify the changes
+        head -n 100 "$CMAFFINITY_CXX_PATH" | tail -n 80
+        grep -C 5 'pthread_getaffinity_np' "$CMAFFINITY_CXX_PATH" || echo "pthread_getaffinity_np not found (good if skipped)."
+        grep -C 5 '#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" || echo "Patching #if !defined(ANDROID) might have failed."
+        echo "--- End of cmAffinity.cxx patch verification ---"
 
     - name: Create dummy android_lf.h
       env:
@@ -242,7 +238,7 @@ jobs:
             echo "Patch applied. Showing first few lines of pipe.c:"
             head "$CMAKE_SOURCE_DIR/Utilities/cmlibuv/src/unix/pipe.c"
 
-    - name: Patch cmlibuv process.c for sched.h, pthread.h, defines, and stub for pthread_setaffinity_np (revised sed)
+    - name: Patch cmlibuv process.c for sched.h, pthread.h, defines, and stub for pthread_setaffinity_np
       env:
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
       run: |
@@ -265,7 +261,7 @@ jobs:
         rm -rf "$CMAKE_BUILD_DIR"
         echo "Aggressive clean complete."
 
-    - name: Konfigurasi build CMake untuk Android armeabi-v7a
+    - name: Configure CMake build for Android armeabi-v7a
       env:
         CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
         CMAKE_SOURCE_DIR: ${{ runner.temp }}/cmake_src
@@ -293,7 +289,7 @@ jobs:
               -Wno-dev \
               -DCMAKE_C_USE_PRECOMPILED_HEADERS=FALSE \
               -DCMAKE_CXX_USE_PRECOMPILED_HEADERS=FALSE \
-              -DCMAKE_USE_CPU_AFFINITY=0 # <-- New: Explicitly disable CPU affinity
+              -DCMAKE_USE_CPU_AFFINITY=0 # Explicitly disable CPU affinity if CMake supports it.
 
         if [ $? -ne 0 ]; then
           echo "CMake configuration failed!"
@@ -327,7 +323,7 @@ jobs:
         fi
         echo "Make build successful."
 
-    - name: Install hasil build CMake
+    - name: Install CMake build artifacts
       env:
         CMAKE_BUILD_DIR: ${{ runner.temp }}/cmake_build_android
         INSTALL_DIR: ${{ runner.temp }}/cmake_android_install
@@ -350,9 +346,9 @@ jobs:
         CMAKE_SHARE_DIR_TO_CHECK="cmake-$CMAKE_SHARE_DIR_VERSION"
 
         echo "Verifying share directory: "$INSTALL_DIR"/share/"$CMAKE_SHARE_DIR_TO_CHECK""
-        ls -lA "$INSTALL_DIR/share/$CMAKE_SHARE_DIR_TO_CHECK" || echo "Warning: "$INSTALL_DIR"/share/"$CMAKE_SHARE_DIR_TO_CHECK" not found or empty."
+        ls -lA "$INSTALL_DIR"/share/"$CMAKE_SHARE_DIR_TO_CHECK" || echo "Warning: "$INSTALL_DIR"/share/"$CMAKE_SHARE_DIR_TO_CHECK" not found or empty."
 
-    - name: Upload artefak hasil build
+    - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: cmake-${{ env.CMAKE_VERSION_TAG }}-android-armeabi-v7a-ndk${{ env.NDK_VERSION_NUMBER_FOR_ARTIFACT }}-api${{ env.ANDROID_PLATFORM }}
