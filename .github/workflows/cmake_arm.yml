@@ -178,18 +178,35 @@ jobs:
 
         echo "Patching $CMAFFINITY_CXX_PATH to disable pthread affinity for Android using sed."
 
-        # Use sed to insert the #if and #endif directives
-        # Insert #if !defined(ANDROID) after '#  else'
+        # Insert #if !defined(ANDROID) after the specific '#  else'
+        # This targets the line starting with '#  else' which is the one for POSIX implementation
         sed -i '/^#  else$/a#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
 
-        # Insert #endif // !defined(ANDROID) before '#  endif'
-        sed -i '/^#  endif$/i#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
+        # Insert #endif // !defined(ANDROID) after the '}' that closes the pthread_getaffinity_np 'if' block.
+        # This targets the line containing '    }', which closes the 'if (pthread_getaffinity_np(...))' block.
+        # It's specific enough as the previous '}' has a different indentation.
+        sed -i '/^    }$/a#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"
 
         echo "Patch applied. Verifying changes in cmAffinity.cxx:"
         # Verify if both #if and #endif were added
         if grep -q '#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" && \
            grep -q '#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH"; then
             echo "Verification: Both '#if !defined(ANDROID)' and '#endif // !defined(ANDROID)' found."
+            # More specific check: verify placement
+            if grep -A 5 '#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" | grep -q 'pthread_getaffinity_np'; then
+                echo "Verification: '#if !defined(ANDROID)' found correctly placed before pthread_getaffinity_np."
+            else
+                echo "Error: '#if !defined(ANDROID)' found, but not correctly placed before pthread_getaffinity_np."
+                grep -A 10 '#if !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" || true
+                exit 1
+            fi
+            if grep -B 5 '#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" | grep -q 'pthread_getaffinity_np'; then
+                echo "Verification: '#endif // !defined(ANDROID)' found correctly placed after pthread_getaffinity_np."
+            else
+                echo "Error: '#endif // !defined(ANDROID)' found, but not correctly placed after pthread_getaffinity_np."
+                grep -B 10 '#endif // !defined(ANDROID)' "$CMAFFINITY_CXX_PATH" || true
+                exit 1
+            fi
         else
             echo "Error: One or both of the patch markers were NOT found."
             echo "--- Full content of cmAffinity.cxx AFTER patching for inspection ---"
