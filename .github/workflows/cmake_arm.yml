@@ -392,6 +392,7 @@ EOF_PATCH
         INSTALL_DIR: ${{ runner.temp }}/cmake_android_install
       run: |
         echo "Installing CMake to "$INSTALL_DIR"..."
+        mkdir -p "$INSTALL_DIR" # Ensure install directory exists before make install
         cd "$CMAKE_BUILD_DIR"
         make install
         if [ $? -ne 0 ]; then
@@ -399,8 +400,7 @@ EOF_PATCH
           exit 1
         fi
         echo "CMake installation successful. Contents of "$INSTALL_DIR":"
-        ls -lA "$INSTALL_DIR"
-
+        ls -lA "$INSTALL_DIR" # This ls -lA is crucial for diagnosis
         echo "Verifying key directories in installation:"
         ls -lA "$INSTALL_DIR/bin" || echo "Warning: "$INSTALL_DIR"/bin not found or empty."
 
