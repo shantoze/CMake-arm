@@ -186,7 +186,7 @@ jobs:
  #  else
 +#if !defined(ANDROID)
      cm_cpuset_t cpuset;
-     CPU_ZERO(&cpuset); // NOLINT(clang-tidy)
+     CPU_ZERO(&cpuset); # NOLINT(clang-tidy)
      if (pthread_getaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) == 0) {
        for (int i = 0; i < cpumask_size; ++i) {
          if (CPU_ISSET(i, &cpuset)) {
@@ -194,7 +194,7 @@ jobs:
          }
        }
      }
-+#endif // !defined(ANDROID)
++#endif # !defined(ANDROID)
  #  endif
    }
  #endif
@@ -421,5 +421,8 @@ EOF_PATCH
       uses: actions/upload-artifact@v4
       with:
         name: cmake-${{ env.CMAKE_VERSION_TAG }}-android-armeabi-v7a-ndk${{ env.NDK_VERSION_NUMBER_FOR_ARTIFACT }}-api${{ env.ANDROID_PLATFORM }}
-        path: ${{ runner.temp }}/cmake_android_install
-        if-no-files-found: error
+        path: |
+          ${{ runner.temp }}/cmake_android_install
+          ${{ runner.temp }}/cmake_build_android/CMakeFiles/CMakeOutput.log
+          ${{ runner.temp }}/cmake_build_android/CMakeFiles/CMakeError.log
+        if-no-files-found: ignore
