@@ -382,9 +382,15 @@ EOF_PATCH
         make VERBOSE=1 -j$(nproc)
         if [ $? -ne 0 ]; then
           echo "Make build failed!"
+          cat "$CMAKE_BUILD_DIR/CMakeFiles/CMakeOutput.log" || echo "CMakeOutput.log not found."
+          cat "$CMAKE_BUILD_DIR/CMakeFiles/CMakeError.log" || echo "CMakeError.log not found."
           exit 1
         fi
         echo "Make build successful."
+        echo "Contents of CMake build directory ($CMAKE_BUILD_DIR) after build:"
+        ls -lA "$CMAKE_BUILD_DIR"
+        echo "Contents of bin directory within build ($CMAKE_BUILD_DIR/bin):"
+        ls -lA "$CMAKE_BUILD_DIR/bin" || echo "$CMAKE_BUILD_DIR/bin not found or empty."
 
     - name: Install CMake build artifacts
       env:
